@@ -11,6 +11,8 @@ from typing import Any
 from watchdog.events import FileSystemEventHandler
 from watchdog.observers import Observer
 
+_WATCHED_NOTEBOOK_PATHS: set[str] = set()
+
 
 class JupyterHooks:
     """Resolve the active notebook path from IPython and register save hooks."""
@@ -27,6 +29,11 @@ class JupyterHooks:
         Notes
         -----
         No-ops when not running inside IPython or when hooks are unavailable.
+        IPython's :class:`~IPython.core.events.EventManager` only exposes
+        execution events (for example ``pre_run_cell``), not notebook file
+        saves; ``pre_save_hook`` is not a registered event name and is skipped
+        without error. Sync after save still uses :class:`NotebookWatcher` when
+        configured.
         """
         try:
             from IPython import get_ipython
@@ -43,7 +50,7 @@ class JupyterHooks:
         if ev is not None and hasattr(ev, "register"):
             try:
                 ev.register("pre_save_hook", _hook)
-            except (AttributeError, TypeError):
+            except (AttributeError, KeyError, TypeError):
                 pass
 
     @staticmethod
@@ -160,17 +167,22 @@ class NotebookWatcher:
         """Start the background observer thread."""
         if self._observer is not None:
             return
+        key = str(self._path)
+        if key in _WATCHED_NOTEBOOK_PATHS:
+            return
         parent = self._path.parent
         self._handler = _WatchHandler(self._path, self._callback, self._debounce)
         self._observer = Observer()
         self._observer.schedule(self._handler, str(parent), recursive=False)
         self._observer.start()
+        _WATCHED_NOTEBOOK_PATHS.add(key)
         time.sleep(0.05)
 
     def stop(self) -> None:
         """Stop watching and join the observer thread."""
         if self._observer is None:
             return
+        _WATCHED_NOTEBOOK_PATHS.discard(str(self._path))
         self._observer.stop()
         self._observer.join(timeout=5.0)
         self._observer = None
