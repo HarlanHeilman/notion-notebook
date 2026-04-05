@@ -1,0 +1,43 @@
+[project]
+name = "notion-notebook"
+version = "0.1.0"
+description = "Export Jupyter notebooks to Notion with figures and git metadata"
+readme = "README.md"
+authors = [
+    { name = "Harlan D Heilman", email = "73567020+HarlanHeilman@users.noreply.github.com" }
+]
+requires-python = ">=3.13"
+dependencies = [
+    "dotenv>=0.9.9",
+    "ipynbname>=2025.8.0.0",
+    "ipython>=9.12.0",
+    "matplotlib>=3.10.8",
+    "nbconvert>=7.17.0",
+    "nbformat>=5.10.4",
+    "notion-client>=3.0.0",
+    "numpy>=2.4.4",
+    "watchdog>=6.0.0",
+]
+
+[project.scripts]
+notion-notebook = "notion_notebook:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/notion_notebook"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
+
+[dependency-groups]
+dev = [
+    "jupyterlab>=4.5.6",
+    "pytest>=9.0.2",
+    "pytest-mock>=3.15.1",
+    "ruff>=0.15.9",
+    "ty>=0.0.28",
+]
