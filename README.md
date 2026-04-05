@@ -1,6 +1,6 @@
 # notion-notebook
 
-Export Jupyter notebooks to a Notion page on save: structured cells, image uploads, optional **Figures** child database, and git-aware metadata.
+Export Jupyter notebooks to a Notion page on save: structured cells, image uploads, optional inline **Figures** table (append-only plot history per sync), and git-aware metadata.
 
 ## Install
 

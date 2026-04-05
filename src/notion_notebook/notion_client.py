@@ -160,7 +160,7 @@ class NotionPageSync:
         figures: list[ExtractedFigure],
         notebook_filename: str,
     ) -> SyncBlocksResult:
-        """Delete the previous export region and prepend resolved ``blocks``.
+        """Delete the previous export region and append resolved ``blocks`` at the managed position.
 
         Parameters
         ----------
@@ -179,8 +179,9 @@ class NotionPageSync:
         resolved, img_count, perr = self._resolve_pending_uploads(blocks, figures)
         errors.extend(perr)
         heading = export_heading_text(notebook_filename)
+        first_position = self._export_first_insert_position(heading)
         deleted = self._delete_export_section(heading)
-        created = self._append_blocks_in_order(resolved)
+        created = self._append_blocks_in_order(resolved, first_position=first_position)
         return SyncBlocksResult(
             success=True,
             blocks_created=created,
@@ -296,6 +297,45 @@ class NotionPageSync:
             )
         return out, uploads, errors
 
+    def _export_first_insert_position(self, heading_plain: str) -> dict[str, Any]:
+        """Return the Notion ``position`` payload for the first append batch.
+
+        When the managed export heading sits below user blocks, new content is
+        inserted after the last user block so free-form Notion content can stay
+        at the top. When there is no heading yet, inserts after the last block
+        before the first top-level ``child_database`` (typically ``Figures``)
+        so the database remains at the bottom. Otherwise uses ``start``.
+        """
+        children = list(
+            collect_paginated_api(
+                self._client.blocks.children.list,
+                block_id=self._page_id,
+                page_size=100,
+            )
+        )
+        first_db = _first_top_level_child_database_index(children)
+        if first_db is None:
+            first_db = len(children)
+        heading_idx = None
+        for i, block in enumerate(children):
+            if i >= first_db:
+                break
+            if block.get("type") == "heading_2":
+                plain = plain_text_from_rich_block(cast(dict[str, Any], block), "heading_2")
+                if plain.strip() == heading_plain:
+                    heading_idx = i
+                    break
+        if heading_idx is not None:
+            start_idx = _expand_delete_start_backwards(children, heading_idx)
+            if start_idx > 0:
+                bid = str(children[start_idx - 1]["id"])
+                return {"type": "after_block", "after_block": {"id": bid}}
+            return {"type": "start"}
+        if first_db > 0:
+            bid = str(children[first_db - 1]["id"])
+            return {"type": "after_block", "after_block": {"id": bid}}
+        return {"type": "start"}
+
     def _delete_export_section(self, heading_plain: str) -> int:
         children = list(
             collect_paginated_api(
@@ -329,19 +369,25 @@ class NotionPageSync:
                 pass
         return n
 
-    def _append_blocks_in_order(self, blocks: list[dict[str, Any]]) -> int:
+    def _append_blocks_in_order(
+        self,
+        blocks: list[dict[str, Any]],
+        *,
+        first_position: dict[str, Any] | None = None,
+    ) -> int:
         total = 0
         after: str | None = None
+        pos0 = first_position if first_position is not None else {"type": "start"}
         for off in range(0, len(blocks), BLOCK_BATCH):
             batch = blocks[off : off + BLOCK_BATCH]
             if off == 0:
                 resp = cast(
                     dict[str, Any],
                     self._with_retry(
-                        lambda: self._client.blocks.children.append(
+                        lambda p=pos0: self._client.blocks.children.append(
                             self._page_id,
                             children=batch,
-                            position={"type": "start"},
+                            position=p,
                         )
                     ),
                 )

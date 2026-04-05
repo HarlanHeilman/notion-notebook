@@ -59,8 +59,15 @@ class NotebookExporter:
     def __init__(
         self,
         notion_token: str,
-        notion_page_id: str,
+        notion_page_id: str | None = None,
         *,
+        notion_page_root: str | None = None,
+        notion_page_path: str | list[str] | tuple[str, ...] | None = None,
+        notion_database_title: str | None = None,
+        notion_row_title: str | None = None,
+        notion_container_path: str | list[str] | tuple[str, ...] | None = None,
+        notion_leaf_title: str | None = None,
+        notion_database_id: str | None = None,
         notebook_name: str = "auto",
         notebook_path: str | None = None,
         auto_sync_on_save: bool = True,
@@ -79,7 +86,22 @@ class NotebookExporter:
         notion_token
             Notion integration token (overrides env and config file).
         notion_page_id
-            Target page id or URL (overrides env and config file).
+            Target page id or URL; omit when using ``notion_page_root`` and
+            ``notion_page_path``.
+        notion_page_root
+            Root page id or URL for hierarchical resolution.
+        notion_page_path
+            Title path under the root (slash-separated string, sequence, or JSON).
+        notion_database_title
+            Database title for row lookup (with ``notion_row_title``).
+        notion_row_title
+            Row title within that database.
+        notion_container_path
+            Search-first container path (with ``notion_leaf_title``).
+        notion_leaf_title
+            Final child page or database row title.
+        notion_database_id
+            Database id or URL with ``notion_row_title`` (skips database title search).
         notebook_name
             When ``\"auto\"``, the basename of the resolved notebook path is used
             for export headings; otherwise this string must include ``.ipynb``.
@@ -107,13 +129,20 @@ class NotebookExporter:
         self._cfg = Config.merge(
             notion_token=notion_token,
             notion_page_id=notion_page_id,
+            notion_page_root=notion_page_root,
+            notion_page_path=notion_page_path,
+            notion_database_title=notion_database_title,
+            notion_row_title=notion_row_title,
+            notion_container_path=notion_container_path,
+            notion_leaf_title=notion_leaf_title,
+            notion_database_id=notion_database_id,
             file_path=config_file,
             auto_sync_on_save=auto_sync_on_save,
             image_format=image_format,
             max_image_size_mb=max_image_size_mb,
             debounce_seconds=debounce_seconds,
         )
-        self._page_id_raw = notion_page_id
+        self._cached_page_id: str | None = None
         self._notebook_name_mode = notebook_name
         self._explicit_notebook_path = notebook_path
         self._auto_sync_interval = auto_sync_interval
@@ -128,6 +157,40 @@ class NotebookExporter:
             include_ai_summaries=self._include_ai,
         )
 
+    def _resolved_page_id(self) -> str:
+        """Return the target page id, resolving title path on first use."""
+        if self._cached_page_id is not None:
+            return self._cached_page_id
+        from notion_notebook.page_resolve import (
+            resolve_container_path_and_leaf,
+            resolve_database_and_row_by_title,
+            resolve_page_by_title_path,
+        )
+
+        cfg = self._cfg
+        if cfg.default_page_id:
+            pid = normalize_page_id(cfg.default_page_id)
+        elif (cfg.database_title and cfg.row_title) or (
+            cfg.database_id and cfg.row_title
+        ):
+            pid = resolve_database_and_row_by_title(
+                cfg.notion_token,
+                cfg.database_title or "",
+                cfg.row_title,
+                database_id=cfg.database_id,
+            )
+        elif cfg.container_path and cfg.leaf_title:
+            pid = resolve_container_path_and_leaf(
+                cfg.notion_token,
+                cfg.container_path,
+                cfg.leaf_title,
+            )
+        else:
+            root = cfg.page_root or ""
+            pid = resolve_page_by_title_path(cfg.notion_token, root, cfg.page_path)
+        self._cached_page_id = pid
+        return pid
+
     def start(self) -> None:
         """Validate the Notion page, resolve the notebook path, and begin automation.
 
@@ -140,7 +203,7 @@ class NotebookExporter:
         APIResponseError
             When Notion rejects the integration for the target page.
         """
-        page_id = normalize_page_id(self._page_id_raw)
+        page_id = self._resolved_page_id()
         sync = NotionPageSync(
             self._cfg.notion_token,
             page_id,
@@ -210,7 +273,7 @@ class NotebookExporter:
                 images_uploaded=0,
                 errors=[str(e)],
             )
-        page_id = normalize_page_id(self._page_id_raw)
+        page_id = self._resolved_page_id()
         fname = Path(nb_path).name
         if self._notebook_name_mode == "auto":
             name_for_heading = fname

@@ -1,4 +1,4 @@
-"""Figures child database lifecycle and row upserts."""
+"""Figures inline child database lifecycle and append-only figure rows."""
 
 from __future__ import annotations
 
@@ -58,7 +58,8 @@ class SyncFiguresResult:
     success
         True when no fatal errors occurred.
     rows_upserted
-        Number of figure rows created or updated.
+        Number of figure rows appended (each sync run adds new rows; no in-place
+        replacement by cell index).
     images_uploaded
         Successful file uploads to Notion for figure files properties.
     errors
@@ -109,8 +110,11 @@ class FigureDatabaseManager:
         Notes
         -----
         Searches top-level page children for a ``child_database`` titled
-        :attr:`FIGURES_TITLE`. If none exists, creates one via the API and
-        applies a minimal schema via ``data_sources.update``.
+        :attr:`FIGURES_TITLE`. If none exists, creates an **inline** embedded
+        database on the page (``is_inline=True``) with
+        ``initial_data_source`` so the UI shows a table on the page, not a
+        linked full-page database. Applies any missing columns via
+        ``data_sources.update`` when needed.
         """
         children = list(
             collect_paginated_api(
@@ -121,25 +125,59 @@ class FigureDatabaseManager:
         )
         existing = self._figures_database_id_from_title(children)
         if existing:
-            return existing
-        created = self._notion.databases.create(
-            parent={"type": "page_id", "page_id": self._page_id},
-            title=[
-                {
-                    "type": "text",
-                    "text": {"content": self.FIGURES_TITLE},
-                }
-            ],
-            properties={
-                self.NAME_PROP: {"title": {}},
-                self.IMAGE_PROP: {"files": {}},
-                self.CELL_INDEX_PROP: {"number": {}},
-                self.CODE_PROP: {"rich_text": {}},
-                self.TIMESTAMP_PROP: {"date": {}},
-                self.AI_SUMMARY_PROP: {"rich_text": {}},
-            },
-        )
-        return str(created["id"])
+            db_id = existing
+        else:
+            created = self._notion.databases.create(
+                parent={"type": "page_id", "page_id": self._page_id},
+                title=[
+                    {
+                        "type": "text",
+                        "text": {"content": self.FIGURES_TITLE},
+                    }
+                ],
+                is_inline=True,
+                initial_data_source={
+                    "properties": {
+                        self.NAME_PROP: {"title": {}},
+                        self.IMAGE_PROP: {"files": {}},
+                        self.CELL_INDEX_PROP: {"number": {}},
+                        self.CODE_PROP: {"rich_text": {}},
+                        self.TIMESTAMP_PROP: {"date": {}},
+                        self.AI_SUMMARY_PROP: {"rich_text": {}},
+                    }
+                },
+            )
+            db_id = str(created["id"])
+        ds_id = self._primary_data_source_id(db_id)
+        if ds_id:
+            self.ensure_figures_schema(ds_id)
+        return db_id
+
+    def ensure_figures_schema(self, data_source_id: str) -> None:
+        """Add missing figure-row columns on the primary data source.
+
+        Notion applies schema for new databases on the data source; older
+        ``databases.create`` payloads may only surface ``Name`` until
+        ``data_sources.update`` runs. Idempotent: skips properties that already
+        exist.
+
+        Parameters
+        ----------
+        data_source_id
+            Primary data source id from :meth:`_primary_data_source_id`.
+        """
+        ds = self._notion.data_sources.retrieve(data_source_id)
+        props: dict[str, Any] = dict(ds.get("properties") or {})
+        need = {
+            self.IMAGE_PROP: {"files": {}},
+            self.CELL_INDEX_PROP: {"number": {}},
+            self.CODE_PROP: {"rich_text": {}},
+            self.TIMESTAMP_PROP: {"date": {}},
+            self.AI_SUMMARY_PROP: {"rich_text": {}},
+        }
+        to_add = {k: v for k, v in need.items() if k not in props}
+        if to_add:
+            self._notion.data_sources.update(data_source_id, properties=to_add)
 
     def _figures_database_id_from_title(self, children: list[dict[str, Any]]) -> str | None:
         for b in children:
@@ -156,7 +194,11 @@ class FigureDatabaseManager:
         figures: list[ExtractedFigure],
         figures_db_id: str,
     ) -> SyncFiguresResult:
-        """Create or update rows keyed by cell index for each figure.
+        """Append one new row per figure for this export run.
+
+        Each sync creates new rows so repeated executions preserve a history of
+        plots (same cell index can appear on many rows). Does not update or
+        delete prior rows.
 
         Parameters
         ----------
@@ -190,18 +232,17 @@ class FigureDatabaseManager:
                 errors.append(f"Figure upload failed (cell {fig.cell_index}): {e!s}")
                 continue
             props = self._row_properties(fig, uid)
-            page_id = self._find_row_for_cell(ds_id, fig.cell_index)
             try:
-                if page_id:
-                    self._notion.pages.update(page_id, properties=props)
-                else:
-                    self._notion.pages.create(
-                        parent={"database_id": figures_db_id},
-                        properties=props,
-                    )
+                self._notion.pages.create(
+                    parent={
+                        "type": "data_source_id",
+                        "data_source_id": ds_id,
+                    },
+                    properties=props,
+                )
                 rows += 1
             except Exception as e:
-                errors.append(f"Row upsert failed (cell {fig.cell_index}): {e!s}")
+                errors.append(f"Row create failed (cell {fig.cell_index}): {e!s}")
         return SyncFiguresResult(
             success=len(errors) == 0,
             rows_upserted=rows,
@@ -232,19 +273,10 @@ class FigureDatabaseManager:
             return None
         return str(sources[0]["id"])
 
-    def _find_row_for_cell(self, data_source_id: str, cell_index: int) -> str | None:
-        filt = {
-            "property": self.CELL_INDEX_PROP,
-            "number": {"equals": float(cell_index)},
-        }
-        resp = self._notion.data_sources.query(data_source_id, filter=filt, page_size=5)
-        results = resp.get("results") or []
-        if not results:
-            return None
-        return str(results[0]["id"])
-
     def _row_properties(self, fig: ExtractedFigure, file_upload_id: str) -> dict[str, Any]:
-        name = fig.title or f"Figure {fig.cell_index}_{fig.figure_index}"
+        base = fig.title or f"Figure {fig.cell_index}_{fig.figure_index}"
+        ts = fig.timestamp.astimezone(UTC).strftime("%Y-%m-%d %H:%M UTC")
+        name = f"{base} [{ts}]"
         date_s = fig.timestamp.astimezone(UTC).date().isoformat()
         return {
             self.NAME_PROP: {"title": [{"text": {"content": name[:2000]}}]},

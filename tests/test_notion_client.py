@@ -67,3 +67,42 @@ def test_delete_export_section_deletes_range() -> None:
         n = NotionPageSync._delete_export_section(sync, heading)
     assert n == 2
     assert client.blocks.delete.call_count == 2
+
+
+def test_export_first_insert_position_after_user_content() -> None:
+    heading = export_heading_text("n.ipynb")
+    children = [
+        {"id": "u0", "type": "paragraph", "paragraph": {"rich_text": []}},
+        {
+            "id": "h",
+            "type": "heading_2",
+            "heading_2": {
+                "rich_text": [{"type": "text", "text": {"content": heading}}],
+            },
+        },
+        {"id": "x", "type": "paragraph", "paragraph": {"rich_text": []}},
+        {"id": "db", "type": "child_database", "child_database": {"title": "Figures"}},
+    ]
+    client = MagicMock()
+    sync = NotionPageSync.__new__(NotionPageSync)
+    sync._client = client
+    sync._page_id = "a" * 32
+    cast(Any, sync)._with_retry = lambda fn: fn()
+    with patch("notion_notebook.notion_client.collect_paginated_api", return_value=children):
+        pos = NotionPageSync._export_first_insert_position(sync, heading)
+    assert pos == {"type": "after_block", "after_block": {"id": "u0"}}
+
+
+def test_export_first_insert_position_before_db_without_heading() -> None:
+    children = [
+        {"id": "u0", "type": "paragraph", "paragraph": {"rich_text": []}},
+        {"id": "db", "type": "child_database", "child_database": {"title": "Figures"}},
+    ]
+    client = MagicMock()
+    sync = NotionPageSync.__new__(NotionPageSync)
+    sync._client = client
+    sync._page_id = "a" * 32
+    cast(Any, sync)._with_retry = lambda fn: fn()
+    with patch("notion_notebook.notion_client.collect_paginated_api", return_value=children):
+        pos = NotionPageSync._export_first_insert_position(sync, "Notebook export (n.ipynb)")
+    assert pos == {"type": "after_block", "after_block": {"id": "u0"}}
