@@ -8,6 +8,8 @@ from typing import Any
 
 from notion_client.helpers import collect_paginated_api
 
+from notion_notebook.utils import FIGURES_DATABASE_TITLE, child_database_title_equals
+
 
 @dataclass
 class ExtractedFigure:
@@ -75,7 +77,7 @@ class SyncFiguresResult:
 class FigureDatabaseManager:
     """Manage a ``Figures`` child database and rows for notebook exports."""
 
-    FIGURES_TITLE = "Figures"
+    FIGURES_TITLE = FIGURES_DATABASE_TITLE
     NAME_PROP = "Name"
     IMAGE_PROP = "Image"
     CELL_INDEX_PROP = "Cell Index"
@@ -181,11 +183,7 @@ class FigureDatabaseManager:
 
     def _figures_database_id_from_title(self, children: list[dict[str, Any]]) -> str | None:
         for b in children:
-            if b.get("type") != "child_database":
-                continue
-            cd = b.get("child_database") or {}
-            title = cd.get("title")
-            if isinstance(title, str) and title.strip() == self.FIGURES_TITLE:
+            if child_database_title_equals(b, self.FIGURES_TITLE):
                 return str(b["id"])
         return None
 

@@ -4,6 +4,7 @@ from pathlib import Path
 from notion_notebook.git_utils import NotebookMetadata
 from notion_notebook.notebook_parser import NotebookParser
 from notion_notebook.notion_converter import NotionConverter, PENDING_UPLOAD_BLOCK_TYPE
+from notion_notebook.utils import EXPORT_REGION_MARKER_TEXT
 
 
 def test_blocks_include_metadata_and_heading() -> None:
@@ -20,7 +21,9 @@ def test_blocks_include_metadata_and_heading() -> None:
     conv = NotionConverter()
     blocks, figures = conv.blocks_from_notebook(parsed, meta, "simple.ipynb")
     assert blocks[0]["type"] == "callout"
-    assert blocks[1]["type"] == "heading_2"
+    assert blocks[1]["type"] == "paragraph"
+    assert blocks[1]["paragraph"]["rich_text"][0]["text"]["content"] == EXPORT_REGION_MARKER_TEXT
+    assert blocks[2]["type"] == "heading_2"
     assert not figures
 
 

@@ -4,7 +4,7 @@ from unittest.mock import MagicMock, patch
 from notion_notebook.figure_database_manager import ExtractedFigure
 from notion_notebook.notion_client import NotionPageSync, _expand_delete_start_backwards
 from notion_notebook.notion_converter import PENDING_UPLOAD_BLOCK_TYPE
-from notion_notebook.utils import export_heading_text
+from notion_notebook.utils import EXPORT_REGION_MARKER_TEXT, export_heading_text
 
 
 def test_expand_delete_includes_metadata() -> None:
@@ -14,6 +14,26 @@ def test_expand_delete_includes_metadata() -> None:
     ]
     start = _expand_delete_start_backwards(children, 1)
     assert start == 1
+
+
+def test_expand_delete_includes_export_marker() -> None:
+    children = [
+        {
+            "id": "m",
+            "type": "callout",
+            "callout": {"rich_text": [{"plain_text": "Notebook Metadata"}]},
+        },
+        {
+            "id": "mk",
+            "type": "paragraph",
+            "paragraph": {
+                "rich_text": [{"type": "text", "text": {"content": EXPORT_REGION_MARKER_TEXT}}],
+            },
+        },
+        {"id": "h", "type": "heading_2", "heading_2": {"rich_text": []}},
+    ]
+    start = _expand_delete_start_backwards(children, 2)
+    assert start == 0
 
 
 def test_sync_resolves_pending_uploads() -> None:
@@ -96,6 +116,11 @@ def test_export_first_insert_position_after_user_content() -> None:
 def test_export_first_insert_position_before_db_without_heading() -> None:
     children = [
         {"id": "u0", "type": "paragraph", "paragraph": {"rich_text": []}},
+        {
+            "id": "other",
+            "type": "child_database",
+            "child_database": {"title": "Other"},
+        },
         {"id": "db", "type": "child_database", "child_database": {"title": "Figures"}},
     ]
     client = MagicMock()
@@ -105,4 +130,4 @@ def test_export_first_insert_position_before_db_without_heading() -> None:
     cast(Any, sync)._with_retry = lambda fn: fn()
     with patch("notion_notebook.notion_client.collect_paginated_api", return_value=children):
         pos = NotionPageSync._export_first_insert_position(sync, "Notebook export (n.ipynb)")
-    assert pos == {"type": "after_block", "after_block": {"id": "u0"}}
+    assert pos == {"type": "after_block", "after_block": {"id": "other"}}

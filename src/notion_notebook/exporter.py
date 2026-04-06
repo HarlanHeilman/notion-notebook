@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import hashlib
+import json
 import sys
 import threading
 import traceback
@@ -13,13 +15,27 @@ from notion_client.errors import APIResponseError
 
 from notion_notebook.config import Config
 from notion_notebook.exceptions import ConfigurationError, NotebookPathError
-from notion_notebook.figure_database_manager import FigureDatabaseManager
+from notion_notebook.figure_database_manager import ExtractedFigure, FigureDatabaseManager
 from notion_notebook.git_utils import GitContext
 from notion_notebook.jupyter_hooks import JupyterHooks, NotebookWatcher
-from notion_notebook.notebook_parser import NotebookParser
-from notion_notebook.notion_client import NotionPageSync
+from notion_notebook.notebook_parser import NotebookParser, ParsedNotebook
+from notion_notebook.notion_client import NotionPageSync, SyncBlocksResult
 from notion_notebook.notion_converter import NotionConverter
 from notion_notebook.utils import normalize_page_id
+
+
+def _figure_sync_key(fig: ExtractedFigure) -> str:
+    """Return a stable id for deduplicating figure rows across sync runs."""
+    digest = hashlib.sha256(
+        f"{fig.cell_index}\0{fig.figure_index}\0".encode("utf-8") + fig.image_data
+    ).hexdigest()
+    return digest
+
+
+def _cell_sources_sha256(parsed: ParsedNotebook) -> str:
+    """Return a hash of all cell sources so output-only notebook writes are ignored."""
+    payload = json.dumps([c.source for c in parsed.cells], ensure_ascii=False)
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
 
 @dataclass
@@ -151,6 +167,9 @@ class NotebookExporter:
         self._watcher: NotebookWatcher | None = None
         self._timer: threading.Timer | None = None
         self._stop_interval = threading.Event()
+        self._sync_state_lock = threading.Lock()
+        self._last_cell_sources_hash: str | None = None
+        self._synced_figure_keys: set[str] = set()
         self._parser = NotebookParser()
         self._converter = NotionConverter(
             image_format_preference=self._cfg.image_format,
@@ -253,6 +272,13 @@ class NotebookExporter:
     def manual_sync(self) -> SyncResult:
         """Parse the notebook, push blocks and figures to Notion, and return a summary.
 
+        Replaces the managed export block range only when the concatenation of all
+        cell sources changes, so filesystem events that only refresh outputs (for
+        example after running a plotting cell) update the ``Figures`` table without
+        deleting and re-uploading the inline export body. New figure rows are appended
+        for image outputs whose bytes have not been synced successfully in this
+        process; figure dedupe state resets when the exporter process restarts.
+
         Returns
         -------
         SyncResult
@@ -283,20 +309,46 @@ class NotebookExporter:
             parsed = self._parser.parse(nb_path)
             meta = GitContext.get_notebook_metadata(Path(nb_path))
             blocks, figures = self._converter.blocks_from_notebook(parsed, meta, name_for_heading)
+            sources_hash = _cell_sources_sha256(parsed)
             sync = NotionPageSync(
                 self._cfg.notion_token,
                 page_id,
                 verbose=self._verbose,
                 max_image_size_mb=self._cfg.max_image_size_mb,
             )
-            br = sync.sync_export_blocks(blocks, figures, name_for_heading)
-            errors.extend(br.errors)
+            with self._sync_state_lock:
+                sources_changed = self._last_cell_sources_hash != sources_hash
+            if sources_changed:
+                br = sync.sync_export_blocks(blocks, figures, name_for_heading)
+                errors.extend(br.errors)
+                with self._sync_state_lock:
+                    self._last_cell_sources_hash = sources_hash
+            else:
+                br = SyncBlocksResult(
+                    success=True,
+                    blocks_created=0,
+                    blocks_deleted_old=0,
+                    images_uploaded=0,
+                    errors=[],
+                )
+            new_figs: list[ExtractedFigure] = []
+            with self._sync_state_lock:
+                for fig in figures:
+                    if _figure_sync_key(fig) not in self._synced_figure_keys:
+                        new_figs.append(fig)
             fmgr = FigureDatabaseManager(sync.client, page_id, verbose=self._verbose)
             db_id = fmgr.ensure_figures_database()
-            fr = fmgr.sync_figures(figures, db_id)
-            errors.extend(fr.errors)
-            fmgr.trigger_ai_summaries(db_id)
-            imgs = br.images_uploaded + fr.images_uploaded
+            if new_figs:
+                fr = fmgr.sync_figures(new_figs, db_id)
+                errors.extend(fr.errors)
+                if fr.success:
+                    with self._sync_state_lock:
+                        for fig in new_figs:
+                            self._synced_figure_keys.add(_figure_sync_key(fig))
+                fmgr.trigger_ai_summaries(db_id)
+                imgs = br.images_uploaded + fr.images_uploaded
+            else:
+                imgs = br.images_uploaded
             return SyncResult(
                 success=True,
                 timestamp=datetime.now(UTC),
