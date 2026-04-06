@@ -9,6 +9,10 @@ from typing import Any
 RT_MAX = 1900
 CODE_RICH_TEXT_MAX_SEGMENTS = 90
 
+EXPORT_REGION_MARKER_TEXT = "[notion-notebook] EXPORT_REGION_BEGIN v1"
+
+FIGURES_DATABASE_TITLE = "Figures"
+
 
 def normalize_page_id(page_id_or_url: str) -> str:
     """Strip a Notion URL or id string to the 32-character hex page id.
@@ -155,6 +159,75 @@ def blocks_from_text_paragraphs(text: str) -> list[dict[str, Any]]:
         batch = segs[i : i + CODE_RICH_TEXT_MAX_SEGMENTS]
         out.append({"type": "paragraph", "paragraph": {"rich_text": batch}})
     return out
+
+
+def child_database_title_plain(block: dict[str, Any]) -> str:
+    """Return trimmed display title for a ``child_database`` block when present.
+
+    Parameters
+    ----------
+    block
+        Notion API block object with ``type`` ``child_database``.
+
+    Returns
+    -------
+    str
+        Title string for comparison, or empty when missing or not a child database.
+    """
+    cd = block.get("child_database")
+    if not isinstance(cd, dict):
+        return ""
+    t = cd.get("title")
+    if isinstance(t, str):
+        return t.strip()
+    if isinstance(t, list):
+        return "".join(
+            str(p.get("plain_text", ""))
+            for p in t
+            if isinstance(p, dict)
+        ).strip()
+    return ""
+
+
+def child_database_title_equals(block: dict[str, Any], expected: str) -> bool:
+    """Return True when ``block`` is a ``child_database`` whose title matches ``expected``.
+
+    Parameters
+    ----------
+    block
+        Notion block dict.
+    expected
+        Expected title after strip (for example :data:`FIGURES_DATABASE_TITLE`).
+
+    Returns
+    -------
+    bool
+    """
+    if block.get("type") != "child_database":
+        return False
+    return child_database_title_plain(block) == expected.strip()
+
+
+def figures_database_child_index(children: list[dict[str, Any]], title: str | None = None) -> int | None:
+    """Return the index of the top-level ``child_database`` whose title matches the figures table.
+
+    Parameters
+    ----------
+    children
+        Ordered top-level page blocks from ``blocks.children.list``.
+    title
+        Database title to match; defaults to :data:`FIGURES_DATABASE_TITLE`.
+
+    Returns
+    -------
+    int or None
+        Index of the matching block, or ``None`` when no such database exists.
+    """
+    want = (title or FIGURES_DATABASE_TITLE).strip()
+    for i, b in enumerate(children):
+        if child_database_title_equals(b, want):
+            return i
+    return None
 
 
 def plain_text_from_rich_block(block: dict[str, Any], key: str) -> str:

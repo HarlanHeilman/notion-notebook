@@ -13,7 +13,13 @@ from notion_client.helpers import collect_paginated_api
 
 from notion_notebook.figure_database_manager import ExtractedFigure
 from notion_notebook.notion_converter import PENDING_UPLOAD_BLOCK_TYPE
-from notion_notebook.utils import export_heading_text, plain_text_from_rich_block
+from notion_notebook.utils import (
+    EXPORT_REGION_MARKER_TEXT,
+    child_database_title_equals,
+    export_heading_text,
+    figures_database_child_index,
+    plain_text_from_rich_block,
+)
 
 BLOCK_BATCH = 100
 _MAX_RETRIES = 4
@@ -75,26 +81,9 @@ def find_child_database_id_by_title(
     for b in children:
         if b.get("type") != "child_database":
             continue
-        if _child_database_title_equals(b, title):
+        if child_database_title_equals(b, title):
             return str(b["id"])
     return None
-
-
-def _child_database_title_equals(block: dict[str, Any], expected: str) -> bool:
-    cd = block.get("child_database")
-    if not isinstance(cd, dict):
-        return False
-    t = cd.get("title")
-    if isinstance(t, str):
-        return t.strip() == expected
-    if isinstance(t, list):
-        plain = "".join(
-            str(p.get("plain_text", ""))
-            for p in t
-            if isinstance(p, dict)
-        ).strip()
-        return plain == expected
-    return False
 
 
 class NotionPageSync:
@@ -313,7 +302,7 @@ class NotionPageSync:
                 page_size=100,
             )
         )
-        first_db = _first_top_level_child_database_index(children)
+        first_db = figures_database_child_index(children)
         if first_db is None:
             first_db = len(children)
         heading_idx = None
@@ -344,7 +333,7 @@ class NotionPageSync:
                 page_size=100,
             )
         )
-        first_db = _first_top_level_child_database_index(children)
+        first_db = figures_database_child_index(children)
         if first_db is None:
             first_db = len(children)
         heading_idx = None
@@ -434,13 +423,6 @@ class NotionPageSync:
         return None
 
 
-def _first_top_level_child_database_index(children: list[dict[str, Any]]) -> int | None:
-    for i, b in enumerate(children):
-        if b.get("type") == "child_database":
-            return i
-    return None
-
-
 def _expand_delete_start_backwards(children: list[dict[str, Any]], heading_idx: int) -> int:
     start = heading_idx
     j = heading_idx - 1
@@ -454,6 +436,12 @@ def _expand_delete_start_backwards(children: list[dict[str, Any]], heading_idx: 
         if bt == "callout":
             plain = plain_text_from_rich_block(b, "callout")
             if plain.strip().startswith("Notebook Metadata"):
+                start = j
+                j -= 1
+                continue
+        if bt == "paragraph":
+            plain = plain_text_from_rich_block(b, "paragraph")
+            if plain.strip() == EXPORT_REGION_MARKER_TEXT:
                 start = j
                 j -= 1
                 continue

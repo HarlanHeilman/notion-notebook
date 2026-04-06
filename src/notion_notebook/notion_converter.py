@@ -8,9 +8,11 @@ from datetime import UTC, datetime
 from typing import Any, cast
 
 from notion_notebook.figure_database_manager import ExtractedFigure
+from notion_notebook.markdown_notion import markdown_to_notion_blocks
 from notion_notebook.git_utils import NotebookMetadata
 from notion_notebook.notebook_parser import CellOutput, NotebookCell, ParsedNotebook
 from notion_notebook.utils import (
+    EXPORT_REGION_MARKER_TEXT,
     blocks_from_text_paragraphs,
     chunk_rich_text,
     create_code_block,
@@ -106,6 +108,19 @@ class NotionConverter:
         blocks.append(self.metadata_to_block(metadata))
         blocks.append(
             {
+                "type": "paragraph",
+                "paragraph": {
+                    "rich_text": [
+                        {
+                            "type": "text",
+                            "text": {"content": EXPORT_REGION_MARKER_TEXT},
+                        }
+                    ],
+                },
+            }
+        )
+        blocks.append(
+            {
                 "type": "heading_2",
                 "heading_2": {
                     "rich_text": [
@@ -161,7 +176,7 @@ class NotionConverter:
         if cell.cell_type == "markdown":
             src = cell.source.strip()
             if src:
-                out.extend(create_code_block("markdown", src))
+                out.extend(markdown_to_notion_blocks(src))
         elif cell.cell_type == "raw":
             src = cell.source.strip()
             if src:
