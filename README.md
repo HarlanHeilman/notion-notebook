@@ -47,6 +47,22 @@ exporter.start()
 
 Call `exporter.manual_sync()` for an immediate local export, or `exporter.stop()` to tear down the file watcher.
 
+### IPython shortcut
+
+The magic name is `%nbexp` (not `%notebook`, which is often reserved elsewhere).
+
+```python
+import notion_notebook  # registers line magic
+
+%nbexp local-exporter
+```
+
+Defaults write under `<repo>/docs/save/notebooks` and `<repo>/docs/save/figures` when the notebook path is inside a git checkout. Override directories:
+
+```python
+%nbexp local-exporter --md path/to/markdown-dir --fig path/to/figures-dir
+```
+
 ## CLI
 
 The `notion-notebook` console script prints a short usage hint; primary use is the Python API in notebooks.

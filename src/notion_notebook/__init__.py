@@ -7,6 +7,8 @@ from notion_notebook.git_utils import GitContext, NotebookMetadata
 from notion_notebook.ipython_magic import (
     NotebookMagicResult,
     ensure_ipython_magic_registered,
+    ensure_nbexp_magic_registered,
+    register_nbexp_magic,
     register_notebook_magic,
 )
 from notion_notebook.local_exporter import LocalNotebookExporter, LocalSyncResult
@@ -33,10 +35,13 @@ __all__ = [
     "resolve_container_path_and_leaf",
     "resolve_database_and_row_by_title",
     "resolve_page_by_title_path",
+    "ensure_ipython_magic_registered",
+    "ensure_nbexp_magic_registered",
+    "register_nbexp_magic",
     "register_notebook_magic",
 ]
 
-ensure_ipython_magic_registered()
+ensure_nbexp_magic_registered()
 
 
 def main() -> None:

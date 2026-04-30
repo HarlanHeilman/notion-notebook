@@ -49,7 +49,7 @@ def _default_local_dirs() -> tuple[str, str]:
 
 
 def _parse_local_exporter_args(args: list[str]) -> tuple[str, str]:
-    """Parse optional `%notebook local-exporter` arguments.
+    """Parse optional `%nbexp local-exporter` arguments.
 
     Parameters
     ----------
@@ -86,13 +86,13 @@ def _parse_local_exporter_args(args: list[str]) -> tuple[str, str]:
     return md_dir, fig_dir
 
 
-def handle_notebook_magic(line: str) -> NotebookMagicResult:
-    """Execute a `%notebook` line-magic command.
+def handle_nbexp_magic(line: str) -> NotebookMagicResult:
+    """Execute a `%nbexp` line-magic command.
 
     Parameters
     ----------
     line
-        Raw argument string after `%notebook`.
+        Raw argument string after `%nbexp`.
 
     Returns
     -------
@@ -106,10 +106,10 @@ def handle_notebook_magic(line: str) -> NotebookMagicResult:
     """
     args = shlex.split(line or "")
     if not args:
-        raise ValueError("Usage: %notebook local-exporter")
+        raise ValueError("Usage: %nbexp local-exporter")
     command = args[0].strip().lower()
     if command != "local-exporter":
-        raise ValueError("Unsupported notebook command. Use: %notebook local-exporter")
+        raise ValueError("Unsupported nbexp command. Use: %nbexp local-exporter")
     md_dir, fig_dir = _parse_local_exporter_args(args[1:])
     exporter = LocalNotebookExporter(
         notebook_output_dir=str(Path(md_dir)),
@@ -124,8 +124,8 @@ def handle_notebook_magic(line: str) -> NotebookMagicResult:
     )
 
 
-def register_notebook_magic(ip: Any) -> None:
-    """Register `%notebook` line magic on an IPython shell.
+def register_nbexp_magic(ip: Any) -> None:
+    """Register `%nbexp` line magic on an IPython shell.
 
     Parameters
     ----------
@@ -133,15 +133,26 @@ def register_notebook_magic(ip: Any) -> None:
         IPython shell instance that provides `register_magic_function`.
     """
 
-    def _notebook_magic(line: str) -> str:
-        result = handle_notebook_magic(line)
+    def _nbexp_magic(line: str) -> str:
+        result = handle_nbexp_magic(line)
         return result.message
 
-    ip.register_magic_function(_notebook_magic, "line", "notebook")
+    ip.register_magic_function(_nbexp_magic, "line", "nbexp")
 
 
-def ensure_ipython_magic_registered() -> None:
-    """Register `%notebook` magic when running inside IPython."""
+def register_notebook_magic(ip: Any) -> None:
+    """Backward-compatible alias for :func:`register_nbexp_magic`.
+
+    Notes
+    -----
+    The magic name is ``%nbexp``, not ``%notebook``, because ``%notebook`` is
+    commonly reserved by other Jupyter tooling.
+    """
+    register_nbexp_magic(ip)
+
+
+def ensure_nbexp_magic_registered() -> None:
+    """Register `%nbexp` magic when running inside IPython."""
     try:
         from IPython import get_ipython
     except ImportError:
@@ -149,4 +160,14 @@ def ensure_ipython_magic_registered() -> None:
     ip = get_ipython()
     if ip is None:
         return
-    register_notebook_magic(ip)
+    register_nbexp_magic(ip)
+
+
+def ensure_ipython_magic_registered() -> None:
+    """Backward-compatible alias for :func:`ensure_nbexp_magic_registered`."""
+    ensure_nbexp_magic_registered()
+
+
+def handle_notebook_magic(line: str) -> NotebookMagicResult:
+    """Backward-compatible alias for :func:`handle_nbexp_magic`."""
+    return handle_nbexp_magic(line)
