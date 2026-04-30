@@ -1,6 +1,6 @@
 import pytest
 
-from notion_notebook.config import Config, parse_page_path_value
+from notion_notebook.config import Config, LocalConfig, parse_page_path_value
 from notion_notebook.exceptions import ConfigurationError
 
 
@@ -85,3 +85,23 @@ def test_config_merge_partial_container_raises() -> None:
             notion_token="tok",
             notion_leaf_title="Only leaf",
         )
+
+
+def test_local_config_merge_explicit_dirs(tmp_path) -> None:
+    c = LocalConfig.merge(
+        notebook_output_dir=tmp_path / "md",
+        figure_output_dir=tmp_path / "figs",
+    )
+    assert c.notebook_output_dir == (tmp_path / "md").resolve()
+    assert c.figure_output_dir == (tmp_path / "figs").resolve()
+    assert c.image_format == "png"
+
+
+def test_local_config_requires_notebook_dir(tmp_path) -> None:
+    with pytest.raises(ConfigurationError, match="notebook_output_dir is required"):
+        LocalConfig.merge(figure_output_dir=tmp_path / "figs")
+
+
+def test_local_config_requires_figure_dir(tmp_path) -> None:
+    with pytest.raises(ConfigurationError, match="figure_output_dir is required"):
+        LocalConfig.merge(notebook_output_dir=tmp_path / "md")

@@ -352,3 +352,148 @@ class Config:
             max_image_size_mb=float(merged.get("max_image_size_mb", 5.0)),
             debounce_seconds=float(merged.get("debounce_seconds", 2.0)),
         )
+
+
+@dataclass
+class LocalConfig:
+    """Resolved settings used by local markdown and figure export.
+
+    Parameters
+    ----------
+    notebook_output_dir
+        Directory where notebook markdown files are written.
+    figure_output_dir
+        Directory where extracted figure assets are written.
+    auto_sync_on_save
+        When True, register a file watcher to export after saves.
+    image_format
+        Preferred raster format for figure extraction: ``png``, ``jpg``, or ``webp``.
+    debounce_seconds
+        Minimum delay after a filesystem event before running an export.
+    """
+
+    notebook_output_dir: Path
+    figure_output_dir: Path
+    auto_sync_on_save: bool = True
+    image_format: str = "png"
+    debounce_seconds: float = 2.0
+
+    @staticmethod
+    def load_from_env() -> dict[str, Any]:
+        """Read optional local-export settings from process environment.
+
+        Returns
+        -------
+        dict
+            Keys that map to :class:`LocalConfig` fields when set.
+        """
+        out: dict[str, Any] = {}
+        md = os.environ.get("NOTEBOOK_OUTPUT_DIR")
+        if md:
+            out["notebook_output_dir"] = md.strip()
+        fd = os.environ.get("FIGURE_OUTPUT_DIR")
+        if fd:
+            out["figure_output_dir"] = fd.strip()
+        auto = os.environ.get("LOCAL_AUTO_SYNC_ON_SAVE")
+        if auto:
+            out["auto_sync_on_save"] = auto.strip().lower() not in {"0", "false", "no", "off"}
+        fmt = os.environ.get("LOCAL_IMAGE_FORMAT")
+        if fmt:
+            out["image_format"] = fmt.strip()
+        db = os.environ.get("LOCAL_DEBOUNCE_SECONDS")
+        if db:
+            out["debounce_seconds"] = float(db.strip())
+        return out
+
+    @staticmethod
+    def load_from_file(path: str | Path | None = None) -> dict[str, Any]:
+        """Load optional local-export fields from JSON config if present.
+
+        Parameters
+        ----------
+        path
+            File to read; defaults to ``~/.notion_matplotlib/config.json``.
+
+        Returns
+        -------
+        dict
+            Parsed mapping from JSON, or an empty mapping when missing.
+        """
+        p = Path(path).expanduser() if path is not None else _DEFAULT_CONFIG_PATH
+        if not p.is_file():
+            return {}
+        raw = json.loads(p.read_text(encoding="utf-8"))
+        if not isinstance(raw, dict):
+            return {}
+        return dict(raw)
+
+    @classmethod
+    def merge(
+        cls,
+        *,
+        notebook_output_dir: str | Path | None = None,
+        figure_output_dir: str | Path | None = None,
+        auto_sync_on_save: bool | None = None,
+        image_format: str | None = None,
+        debounce_seconds: float | None = None,
+        file_path: str | Path | None = None,
+    ) -> LocalConfig:
+        """Merge explicit local-export args over environment and JSON config.
+
+        Parameters
+        ----------
+        notebook_output_dir
+            Destination directory for notebook markdown files.
+        figure_output_dir
+            Destination directory for extracted figure assets.
+        auto_sync_on_save
+            Enable or disable watcher-based sync.
+        image_format
+            Preferred figure format for extraction.
+        debounce_seconds
+            Debounce delay for save events.
+        file_path
+            JSON path; defaults to ``~/.notion_matplotlib/config.json``.
+
+        Returns
+        -------
+        LocalConfig
+
+        Raises
+        ------
+        ConfigurationError
+            Raised when output directories are missing after merging.
+        """
+        from notion_notebook.exceptions import ConfigurationError
+
+        merged: dict[str, Any] = {}
+        merged.update(cls.load_from_env())
+        merged.update({k: v for k, v in cls.load_from_file(file_path).items() if v is not None})
+        if notebook_output_dir is not None:
+            merged["notebook_output_dir"] = str(notebook_output_dir)
+        if figure_output_dir is not None:
+            merged["figure_output_dir"] = str(figure_output_dir)
+        if auto_sync_on_save is not None:
+            merged["auto_sync_on_save"] = auto_sync_on_save
+        if image_format is not None:
+            merged["image_format"] = image_format
+        if debounce_seconds is not None:
+            merged["debounce_seconds"] = debounce_seconds
+
+        nb_out = merged.get("notebook_output_dir")
+        fig_out = merged.get("figure_output_dir")
+        if not nb_out:
+            raise ConfigurationError(
+                "notebook_output_dir is required (constructor, NOTEBOOK_OUTPUT_DIR, or config file)."
+            )
+        if not fig_out:
+            raise ConfigurationError(
+                "figure_output_dir is required (constructor, FIGURE_OUTPUT_DIR, or config file)."
+            )
+        return cls(
+            notebook_output_dir=Path(str(nb_out)).expanduser().resolve(),
+            figure_output_dir=Path(str(fig_out)).expanduser().resolve(),
+            auto_sync_on_save=bool(merged.get("auto_sync_on_save", True)),
+            image_format=str(merged.get("image_format", "png")),
+            debounce_seconds=float(merged.get("debounce_seconds", 2.0)),
+        )

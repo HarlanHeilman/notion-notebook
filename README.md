@@ -2,6 +2,8 @@
 
 Export Jupyter notebooks to a Notion page on save: structured cells, image uploads, optional inline **Figures** table (append-only plot history per sync), and git-aware metadata.
 
+The package also supports a local-only export mode that writes notebook markdown and figure files to configured directories without any Notion API calls.
+
 ## Install
 
 ```bash
@@ -29,6 +31,21 @@ exporter.start()
 ```
 
 Call `exporter.manual_sync()` for an immediate run, or `exporter.stop()` to tear down the file watcher.
+
+## Local-only export
+
+```python
+from notion_notebook import LocalNotebookExporter
+
+exporter = LocalNotebookExporter(
+    notebook_output_dir="/absolute/path/to/markdown",
+    figure_output_dir="/absolute/path/to/figures",
+    notebook_path="/absolute/path/to/notebook.ipynb",  # optional if ipynbname can resolve
+)
+exporter.start()
+```
+
+Call `exporter.manual_sync()` for an immediate local export, or `exporter.stop()` to tear down the file watcher.
 
 ## CLI
 
