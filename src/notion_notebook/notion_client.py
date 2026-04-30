@@ -11,7 +11,7 @@ from notion_client import Client
 from notion_client.errors import APIResponseError
 from notion_client.helpers import collect_paginated_api
 
-from notion_notebook.figure_database_manager import ExtractedFigure
+from notion_notebook.extracted_figure import ExtractedFigure
 from notion_notebook.notion_converter import PENDING_UPLOAD_BLOCK_TYPE
 from notion_notebook.utils import (
     EXPORT_REGION_MARKER_TEXT,

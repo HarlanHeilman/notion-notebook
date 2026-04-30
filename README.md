@@ -4,6 +4,10 @@ Export Jupyter notebooks to a Notion page on save: structured cells, image uploa
 
 The package also supports a local-only export mode that writes notebook markdown and figure files to configured directories without any Notion API calls.
 
+Importing ``notion_notebook`` does **not** load the Notion API client until you use ``NotebookExporter``, ``FigureDatabaseManager``, or page-resolution helpers. Local-only workflows (``LocalNotebookExporter``, ``%nbexp``) avoid that dependency chain entirely.
+
+If you use the Notion exporter and see ``httpx`` errors (for example missing ``AsyncClient``), reinstall so this package pulls in a current ``httpx`` (declared explicitly in dependencies), or fix a conflicting local ``httpx.py`` that shadows the real package.
+
 ## Install
 
 ```bash

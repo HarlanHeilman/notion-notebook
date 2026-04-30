@@ -1,7 +1,8 @@
 from datetime import UTC, datetime
 from unittest.mock import MagicMock, patch
 
-from notion_notebook.figure_database_manager import ExtractedFigure, FigureDatabaseManager
+from notion_notebook.extracted_figure import ExtractedFigure
+from notion_notebook.figure_database_manager import FigureDatabaseManager
 
 
 def test_extracted_figure_mime() -> None:

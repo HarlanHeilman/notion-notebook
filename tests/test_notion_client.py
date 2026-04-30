@@ -1,7 +1,7 @@
 from typing import Any, cast
 from unittest.mock import MagicMock, patch
 
-from notion_notebook.figure_database_manager import ExtractedFigure
+from notion_notebook.extracted_figure import ExtractedFigure
 from notion_notebook.notion_client import NotionPageSync, _expand_delete_start_backwards
 from notion_notebook.notion_converter import PENDING_UPLOAD_BLOCK_TYPE
 from notion_notebook.utils import EXPORT_REGION_MARKER_TEXT, export_heading_text

@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any, cast
 
-from notion_notebook.figure_database_manager import ExtractedFigure
+from notion_notebook.extracted_figure import ExtractedFigure
 from notion_notebook.markdown_notion import markdown_to_notion_blocks
 from notion_notebook.git_utils import NotebookMetadata
 from notion_notebook.notebook_parser import CellOutput, NotebookCell, ParsedNotebook

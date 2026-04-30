@@ -12,7 +12,7 @@ from typing import Any
 
 from notion_notebook.config import LocalConfig
 from notion_notebook.exceptions import ConfigurationError, NotebookPathError
-from notion_notebook.figure_database_manager import ExtractedFigure
+from notion_notebook.extracted_figure import ExtractedFigure
 from notion_notebook.git_utils import GitContext
 from notion_notebook.jupyter_hooks import JupyterHooks, NotebookWatcher
 from notion_notebook.notebook_parser import NotebookParser, ParsedNotebook
